@@ -1,6 +1,6 @@
 # BStruct
 
-Binary Struct definitions wrapping IO::Buffer.
+IO::Buffer-backed Struct. Define structs in contiguous memory like it's 1973!
 
 ## Installation
 
@@ -18,7 +18,20 @@ gem install bstruct
 
 ## Usage
 
-TODO: Write usage instructions here
+```ruby
+Vec3 = BStruct.define do
+  float :x
+  float :y
+  float :z
+end
+
+Sphere = BStruct.define do
+  float :radius
+  struct Vec3, :center
+end
+
+ball = Sphere.new(4.0, Vec3.new(1.0, 2.0, 3.0))
+```
 
 ## Development
 
