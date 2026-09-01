@@ -18,8 +18,15 @@ class BStruct
 
   attr_reader :buffer
 
-  def initialize(buffer = IO::Buffer.new(self.class.size))
-    @buffer = buffer
+  def initialize(buffer = nil)
+    if buffer
+      if buffer.size != self.class.size
+        raise ArgumentError, "incorrect buffer size (given #{buffer.size}, expected #{self.class.size})"
+      end
+      @buffer = buffer
+    else
+      @buffer = IO::Buffer.new(self.class.size)
+    end
   end
 
   def self.[](count)
@@ -36,18 +43,37 @@ class BStruct
     b.build
   end
 
+  def ==(other)
+    return false unless other.is_a?(self.class)
+    return @buffer <=> other.buffer
+  end
+  alias :eql? :==
+
+  def hash
+    [self.class.fields, @buffer.get_string].hash
+  end
+
   class Array
     include Enumerable
 
-    attr_reader :buffer
+    attr_reader :buffer, :type
 
-    def initialize(type, count, buffer = IO::Buffer.new(type.size*count), &)
+    def initialize(type, count, buffer = nil, &)
+      if buffer
+        if buffer.size != count*type.size
+          raise ArgumentError, "incorrect buffer size (given #{buffer.size}, expected #{count*type.count})"
+        end
+        @buffer = buffer
+      else
+        @buffer = ::IO::Buffer.new(type.size*count)
+      end
+
       @type = type
       @count = count
-      @buffer = buffer
+
       if block_given?
         count.times do |i|
-          buffer.copy(yield(i).buffer, i*type.size, type.size)
+          @buffer.copy(yield(i).buffer, i*type.size, type.size)
         end
       end
     end
@@ -104,13 +130,37 @@ class BStruct
     end
     alias :to_ary :to_a
 
+    def ==(other)
+      case other
+      when Array
+        return self.type == other.type && @buffer <=> other.buffer
+      when ::Array
+        return to_a == other
+      else false
+      end
+    end
+
+    def eql?(other)
+      return false unless other.is_a?(Array)
+      return self.type == other.type && @buffer <=> other.buffer
+    end
+
+    def hash
+      [self.class.type, @buffer.get_string].hash
+    end
+
     def [](i, s = nil)
       if s
-        # TODO: handle negative size
+        i = @count + i if i.negative?
         Array.new(@type, s, @buffer.slice(i*@type.size, s*@type.size))
       elsif i.is_a?(Range)
-        self[i, i.size]
+        a, b = i.begin, i.end
+        a = @count + a if a < 0
+        b = @count + b if b < 0
+        b += 1 unless i.exclude_end?
+        self[a, b - a]
       else
+        i = @count + i if i.negative?
         @type.new(@buffer.slice(i*@type.size, @type.size))
       end
     end
@@ -120,12 +170,18 @@ class BStruct
       when 2
         i, v = args
         if i.is_a?(Range)
-          self[i.begin, i.size] = v
+          a, b = i.begin, i.end
+          a = @count + a if a < 0
+          b = @count + b if b < 0
+          b += 1 unless i.exclude_end?
+          self[a, b - a] = v
         else
+          i = @count + i if i.negative?
           @buffer.copy(v.buffer, i*@type.size, @type.size)
         end
       when 3
         i, s, v = args
+        i = @count + i if i.negative?
         @buffer.copy(v, i*@size, s*@size)
       else raise ArgumentError, "wrong number of arguments (given #{args.length}, expected 2-3)"
       end
@@ -135,15 +191,26 @@ class BStruct
   class ScalarArray
     include Enumerable
 
-    attr_reader :buffer
+    attr_reader :buffer, :type
 
-    def initialize(type, count, buffer = IO::Buffer.new(SIZEOF[type]*count), &)
-      @type = type
+    def initialize(type, count, buffer = nil, &)
       @size = SIZEOF[type]
-      @buffer = buffer
+
+      if buffer
+        if buffer.size != count*@size
+          raise ArgumentError, "incorrect buffer size (given #{buffer.size}, expected #{@size*count})"
+        end
+        @buffer = buffer
+      else
+        @buffer = ::IO::Buffer.new(@size*count)
+      end
+
+      @type = type
+      @count = count
+
       if block_given?
         count.times do |i|
-          buffer.set_value(type, i*@size, yield(i))
+          @buffer.set_value(type, i*@size, yield(i))
         end
       end
     end
@@ -164,13 +231,37 @@ class BStruct
     end
     alias :to_ary :to_a
 
+    def ==(other)
+      case other
+      when ScalarArray
+        return self.type == other.type && @buffer <=> other.buffer
+      when ::Array
+        return to_a == other
+      else false
+      end
+    end
+
+    def eql?(other)
+      return false unless other.is_a?(ScalarArray)
+      return self.type == other.type && @buffer <=> other.buffer
+    end
+
+    def hash
+      [self.class.type, @buffer.get_string].hash
+    end
+
     def [](i, s = nil)
       if s
-        # TODO: handle negative size
-        ScalarArray.new(@type, @size, s, @buffer.slice(i*@size, s*@size))
+        i = @count + i if i.negative?
+        ScalarArray.new(@type, s, @buffer.slice(i*@size, s*@size))
       elsif i.is_a?(Range)
-        self[i.begin, i.size]
+        a, b = i.begin, i.end
+        a = @count + a if a < 0
+        b = @count + b if b < 0
+        b += 1 unless i.exclude_end?
+        self[a, b - a]
       else
+        i = @count + i if i.negative?
         @buffer.get_value(@type, i*@size)
       end
     end
@@ -180,12 +271,18 @@ class BStruct
       when 2
         i, v = args
         if i.is_a?(Range)
-          self[i.begin, i.size] = v
+          a, b = i.begin, i.end
+          a = @count + a if a < 0
+          b = @count + b if b < 0
+          b += 1 unless i.exclude_end?
+          self[a, b - a] = v
         else
+          i = @count + i if i.negative?
           @buffer.set_value(@type, i*@size, v)
         end
       when 3
         i, s, v = args
+        i = @count + i if i.negative?
         @buffer.copy(v, i*@size, s*@size)
       else raise ArgumentError, "wrong number of arguments (given #{args.length}, expected 2-3)"
       end
@@ -220,13 +317,13 @@ class BStruct
     alias :big? :big_endian?
 
     def u8 name, count = 1
-      _add_field name, :u8, 1, count
+      _add_field name, :U8, 1, count
     end
     alias :ubyte :u8
     alias :uchar :u8
 
     def s8 name, count = 1
-      _add_field name, :s8, 1, count
+      _add_field name, :S8, 1, count
     end
     alias :i8 :s8
     alias :byte :s8

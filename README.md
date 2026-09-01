@@ -27,6 +27,7 @@ end
 
 Sphere = BStruct.define do
   float :radius
+  __ 2 # two bytes of padding
   struct Vec3, :center
 end
 

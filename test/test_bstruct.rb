@@ -6,17 +6,23 @@ class TestBStruct < Minitest::Test
   Foo = BStruct.define do
     long :id
     float :amount
-    __ 2
+    __
+    __
     int :count
   end
 
   Bar = BStruct.define do
     long :id
+    __ 3
     struct Foo, :foo
   end
 
   Vec = BStruct.define do
     float :e, 3
+  end
+
+  Mat = BStruct.define do
+    float :e, 9
   end
 
   def test_that_it_has_a_version_number
@@ -37,6 +43,8 @@ class TestBStruct < Minitest::Test
     assert_equal 234567, foo.id
     assert_equal 3.0, foo.amount
     assert_equal 42, foo.count
+
+    assert_equal Foo.new(1, 1.0, 2), Foo.new(1, 1.0, 2)
   end
 
   def test_nested_struct
@@ -58,19 +66,41 @@ class TestBStruct < Minitest::Test
     foos[12].id = 789
     assert_equal 789, foos[12].id
 
-    foos = Foo[3].new(
+    foos = Foo[5].new(
       Foo.new(10, 1.0, 100),
       Foo.new(20, 2.0, 200),
-      Foo.new(30, 3.0, 300)
+      Foo.new(30, 3.0, 300),
+      Foo.new(40, 4.0, 400),
+      Foo.new(50, 5.0, 500)
     )
-    assert_equal 3, foos.length
+    assert_equal 5, foos.length
     assert_equal 10, foos[0].id
     assert_equal 20, foos[1].id
     assert_equal 30, foos[2].id
+    assert_equal 40, foos[3].id
+    assert_equal 50, foos[4].id
+
+    assert_equal(50, foos[-1].id)
+    assert_equal([20, 30, 40], foos[1, 3].map(&:id))
+    assert_equal([20, 30, 40], foos[1..3].map(&:id))
+    assert_equal([20, 30], foos[1...3].map(&:id))
+    assert_equal([20, 30, 40], foos[1, 3].map(&:id))
+    assert_equal([30, 40], foos[-3, 2].map(&:id))
+    assert_equal([30, 40, 50], foos[-3..-1].map(&:id))
+
+    assert_equal(
+      Foo[2].new(Foo.new(1, 1.0, 2), Foo.new(2, 2.0, 3)),
+      Foo[2].new(Foo.new(1, 1.0, 2), Foo.new(2, 2.0, 3))
+    )
+    assert_equal(
+      [Foo.new(1, 1.0, 2), Foo.new(2, 2.0, 3)],
+      Foo[2].new(Foo.new(1, 1.0, 2), Foo.new(2, 2.0, 3))
+    )
   end
 
   def test_array_member
     v = Vec.new([1.0, 2.0, 3.0])
+    assert_equal 3, v.e.length
     assert_equal 1.0, v.e[0]
     assert_equal 2.0, v.e[1]
     assert_equal 3.0, v.e[2]
@@ -86,6 +116,30 @@ class TestBStruct < Minitest::Test
     assert_equal 3.0, v.e[0]
     assert_equal 4.0, v.e[1]
     assert_equal 5.0, v.e[2]
+
+    assert_equal(
+      Vec.new([1.0, 2.0, 3.0]).e,
+      Vec.new([1.0, 2.0, 3.0]).e,
+    )
+
+    assert_equal(
+      [1.0, 2.0, 3.0],
+      Vec.new([1.0, 2.0, 3.0]).e
+    )
+
+    m = Mat.new([
+      1.0, 2.0, 3.0,
+      4.0, 5.0, 6.0,
+      7.0, 8.0, 9.0
+    ])
+
+    assert_equal(9.0, m.e[-1])
+    assert_equal([4.0, 5.0, 6.0], m.e[3, 3].to_a)
+    assert_equal([2.0, 3.0, 4.0], m.e[1..3].to_a)
+    assert_equal([2.0, 3.0], m.e[1...3].to_a)
+    assert_equal([2.0, 3.0, 4.0], m.e[1, 3].to_a)
+    assert_equal([7.0, 8.0], m.e[-3, 2].to_a)
+    assert_equal([7.0, 8.0, 9.0], m.e[-3..-1].to_a)
   end
 
 end
