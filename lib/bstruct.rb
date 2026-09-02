@@ -29,7 +29,27 @@ class BStruct
     end
   end
 
-  def self.[](count)
+  def to_buf = @buffer
+
+  def self.from_buf(buffer, *, **)
+    new(buffer)
+  end
+
+  def cast(type, *, **)
+    case type
+    when Symbol then ScalarArray.new(type, size/SIZEOF[type], @buffer)
+    when Class
+      if type < BStruct
+        type.from_buf(@buffer, *, **)
+      elsif type < ScalarArray
+        type.from_buf(@buffer, type, *, **)
+      elsif type < Array
+        type.from_buf(@buffer, type, *, **)
+      end
+    end
+  end
+
+  def self.[](count = nil)
     Array[self, count]
   end
 
@@ -78,7 +98,20 @@ class BStruct
       end
     end
 
-    def self.[](type, count)
+    def self.from_buf(buffer, type = :u8, *, **)
+      case type
+      when Symbol then return ScalarArray.from_buf(buffer, type, *, **)
+      when Class
+        if type < BStruct
+          return Array.new(type, buffer.size / type.size, buffer)
+        elsif type < Array
+          type.from_buf(buffer, type, *, **)
+        end
+      end
+      raise ::ArgumentError, "type must be a symbol or BStruct, found #{type.inspect}"
+    end
+
+    def self.[](type, count = nil)
       Class.new(Array) do
         @type = type
         @count = count
@@ -88,31 +121,60 @@ class BStruct
           def count = @count
 
           def to_s
-            "BStruct::Array[#{type}, #{count}]"
+            "BStruct::Array[#{type}, #{count || "unsized"}]"
           end
           alias :inspect :to_s
         end
 
         def initialize(*args)
           case args.length
-          when 0 then super(self.class.type, self.class.count)
+          when 0
+            if self.class.count.nil?
+              raise ::ArgumentError, "cannot initialize array, count not specified"
+            end
+            super(self.class.type, self.class.count)
           when 1
             arg = args.first
             case arg
-            when IO::Buffer then super(self.class.type, self.class.count, arg)
-            when Array then super(self.class.type, self.class.count, arg.buffer)
-            when ::Array
-              if arg.length != self.class.count
+            when Integer
+              if self.class.count && arg != self.class.count
+                raise ::ArgumentError, "tried to initialize sized array type with different size (given #{arg}, expected #{self.class.count})"
+              end
+              super(self.class.type, arg)
+            when IO::Buffer then super(self.class.type, self.class.count || arg.size/self.class.type.size, arg)
+            when Array
+              if arg.type != self.class.type
+                raise ::ArgumentError, "array type mismatch (given #{arg.type}, expected #{self.class.type})"
+              end
+              if self.class.count && arg.length != self.class.count
                 raise ::ArgumentError, "array length mismatch (given #{arg.length}, expected #{self.class.count})"
               end
-              super(self.class.type, self.class.count) { arg[it] }
+              super(self.class.type, self.class.count || arg.length, arg.buffer)
+            when ::Array
+              if self.class.count && arg.length != self.class.count
+                raise ::ArgumentError, "array length mismatch (given #{arg.length}, expected #{self.class.count})"
+              end
+              super(self.class.type, self.class.count || arg.length) { arg[it] }
             end
-          when self.class.count then super(self.class.type, self.class.count) { args[it] }
-          else raise ::ArgumentError, "wrong number of arguments (given #{args.length}, expected 0, 1, 2, or #{self.class.count})"
+          else
+            if self.class.count
+              if args.length != self.class.count
+                raise ::ArgumentError, "wrong number of arguments (given #{args.length}, expected 0, 1, or #{self.class.count})"
+              end
+              super(self.class.type, self.class.count) { args[it] }
+            else
+              raise ::ArgumentError, "wrong number of arguments (given #{args.length}, expected 0-2)"
+            end
           end
+        end
+
+        def self.from_buf(buffer, *, **)
+          new(buffer)
         end
       end
     end
+
+    def to_buf = @buffer
 
     def length
       @count
@@ -215,6 +277,12 @@ class BStruct
       end
     end
 
+    def to_buf = @buffer
+
+    def self.from_buf(buffer, type = :u8, *, **)
+      new(type, buffer.size / SIZEOF[type], buffer)
+    end
+
     def length
       @count
     end
@@ -287,6 +355,127 @@ class BStruct
       else raise ArgumentError, "wrong number of arguments (given #{args.length}, expected 2-3)"
       end
     end
+  end
+
+  class Uint8Array < ScalarArray
+    TYPE = :U8
+
+    def initialize(arg)
+      case arg
+      when Integer then super(TYPE, arg)
+      when ::IO::Buffer then super(TYPE, buf.size, arg)
+      when ScalarArray
+        if arg.type != TYPE
+          raise ::ArgumentError, "array type mismatch (given #{arg.type}, expected #{TYPE})"
+        end
+        super(TYPE, arg.length, arg.buffer)
+      else
+        arg = arg.to_a
+        super(TYPE, arg.length) { arg[it] }
+      end
+    end
+
+    def self.from_buf(buffer, *, **)
+      new(buffer)
+    end
+  end
+
+  class Int8Array < ScalarArray
+    TYPE = :S8
+
+    def initialize(arg)
+      case arg
+      when Integer then super(TYPE, arg)
+      when ::IO::Buffer then super(TYPE, buf.size, arg)
+      when ScalarArray
+        if arg.type != TYPE
+          raise ::ArgumentError, "array type mismatch (given #{arg.type}, expected #{TYPE})"
+        end
+        super(TYPE, arg.length, arg.buffer)
+      else
+        arg = arg.to_a
+        super(TYPE, arg.length) { arg[it] }
+      end
+    end
+
+    def self.from_buf(buffer, *, **)
+      new(buffer)
+    end
+  end
+
+  {
+    u16: "Uint16",
+    s16: "Int16",
+    u32: "Uint32",
+    s32: "Int32",
+    u64: "Uint64",
+    s64: "Int64",
+    f32: "Float32",
+    f64: "Float64"
+  }.each do |type, name|
+    class_eval <<~RUBY, __FILE__, __LINE__
+      class #{name}Array < ScalarArray
+        TYPE = :#{type}
+
+        def initialize(arg, endian: :little)
+          type = case endian
+          when :little then TYPE
+          when :big, :network then TYPE.to_s.upcase.to_sym
+          else raise ::ArgumentError, "unknown endianness \#{endian}"
+          end
+          size = SIZEOF[type]
+          case arg
+          when Integer then super(type, arg)
+          when ::IO::Buffer then super(type, buf.size/size, arg)
+          when ScalarArray
+            if arg.type != type
+              raise ::ArgumentError, "array type mismatch (given \#{arg.type}, expected \#{type})"
+            end
+            super(type, arg.length, arg.buffer)
+          else
+            arg = arg.to_a
+            super(type, arg.length) { arg[it] }
+          end
+        end
+
+        def self.from_buf(buffer, *, **)
+          new(buffer, **)
+        end
+      end
+    RUBY
+  end
+
+  def self._check_to_buf_generic(val, type, size, count, array_class)
+    total_size = size*count
+    case val
+    when ::IO::Buffer
+      if val.size != total_size
+        raise ::ArgumentError, "buffer size mismatch (given #{val.size}, excepted #{total_size})"
+      end
+      val
+    when array_class
+      if val.type != type
+        raise ::ArgumentError, "array type mismatch (given #{val.type}, expected #{type})"
+      end
+      if val.length != count
+        raise ::ArgumentError, "array length mismatch (given #{val.length}, expected #{count}})"
+      end
+      val.buffer
+    else
+      val = val.to_ary
+      if val.length != count
+        raise ::ArgumentError, "array length mismatch (given #{val.length}, expected #{count}})"
+      end
+      array_class.new(type, count) { val[it] }.buffer
+    end
+  end
+
+  def self._check_to_scalar_buf(val, type, count)
+    _check_to_buf_generic(val, type, SIZEOF[type], count, ScalarArray)
+  end
+
+  def self._check_to_struct_buf(val, type, count)
+    _check_to_buf_generic(val, type, type.size, count, Array)
   end
 
   class Builder < BasicObject
@@ -428,17 +617,15 @@ class BStruct
               if field.count == 1
                 @buffer.set_value(field.type, field.offset, arg)
               else
-                arg = ::BStruct::ScalarArray.new(field.type, field.count) { arg[it] } unless arg.is_a?(ScalarArray)
-                # TODO: check size
-                @buffer.copy(arg.buffer, field.offset, field.count*field.size)
+                buf = ::BStruct._check_to_scalar_buf(arg, field.type, field.count)
+                @buffer.copy(buf, field.offset, field.count*field.size)
               end
             else
               if field.count == 1
                 @buffer.copy(arg.buffer, field.offset, field.size)
               else
-                arg = ::BStruct::Array.new(field.type, field.count) { arg[it] } unless arg.is_a?(ScalarArray)
-                # TODO: check size
-                @buffer.copy(arg.buffer, field.offset, field.count*field.size)
+                buf = ::BStruct._check_to_struct_buf(arg, field.type, field.count)
+                @buffer.copy(buf, field.offset, field.count*field.size)
               end
             end
           end
@@ -461,7 +648,7 @@ class BStruct
           case field.type
           when ::Symbol
             if field.count == 1
-              class_eval <<-RUBY
+              class_eval <<-RUBY, __FILE__, __LINE__
                 def #{name}
                   @buffer.get_value(:#{field.type}, #{field.offset})
                 end
@@ -470,25 +657,19 @@ class BStruct
                 end
               RUBY
             else
-              class_eval <<-RUBY
+              class_eval <<-RUBY, __FILE__, __LINE__
                 def #{name}
                   ScalarArray.new(:#{field.type}, #{field.count}, @buffer.slice(#{field.offset}, #{field.count*field.size}))
                 end
                 def #{name}=(value)
-                  buf = case value
-                  when ::IO::Buffer then value
-                  when ::BStruct::ScalarArray then value.buffer
-                  else
-                    ary = value.to_ary
-                    ::BStruct::ScalarArray.new(:#{field.type}, #{field.count}) { ary[it] }.buffer
-                  end
+                  buf = ::BStruct._check_to_scalar_buf(value, :#{field.type}, #{field.count})
                   @buffer.copy(buf, #{field.offset}, #{field.count*field.size})
                 end
               RUBY
             end
           else
             if field.count == 1
-              class_eval <<-RUBY
+              class_eval <<-RUBY, __FILE__, __LINE__
                 def #{name}
                   self.class.fields[:#{name}].type.new(@buffer.slice(#{field.offset}, #{field.size}))
                 end
@@ -497,18 +678,12 @@ class BStruct
                 end
               RUBY
             else
-              class_eval <<-RUBY
+              class_eval <<-RUBY, __FILE__, __LINE__
                 def #{name}
-                  ::BStruct::Array.new(self.class.fields[:#{name}], #{field.count}, @buffer.slice(#{field.offset}, #{field.count*field.size}))
+                  ::BStruct::Array.new(self.class.fields[:#{name}].type, #{field.count}, @buffer.slice(#{field.offset}, #{field.count*field.size}))
                 end
                 def #{name}=(value)
-                  buf = case value
-                  when ::IO::Buffer then value
-                  when ::BStruct::Array then value.buffer
-                  else
-                    ary = value.to_ary
-                    ::BStruct::Array.new(self.class.fields[:#{name}], #{field.count}) { ary[it] }.buffer
-                  end
+                  buf = ::BStruct._check_to_struct_buf(arg, self.class.fields[:#{name}].type, #{field.count})
                   @buffer.copy(buf, #{field.offset}, #{field.count*field.size})
                 end
               RUBY

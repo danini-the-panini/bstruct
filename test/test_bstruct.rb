@@ -142,4 +142,116 @@ class TestBStruct < Minitest::Test
     assert_equal([7.0, 8.0, 9.0], m.e[-3..-1].to_a)
   end
 
+  def test_uint8_array
+    a = BStruct::Uint8Array.new(10)
+    assert_equal 10, a.length
+
+    a = BStruct::Uint8Array.new([4,5,255])
+    assert_equal 3, a.length
+    assert_equal 4, a[0]
+    assert_equal 5, a[1]
+    assert_equal 255, a[2]
+  end
+
+  def test_int8_array
+    a = BStruct::Int8Array.new(10)
+    assert_equal 10, a.length
+
+    a = BStruct::Int8Array.new([-127,5,127])
+    assert_equal 3, a.length
+    assert_equal(-127, a[0])
+    assert_equal(5, a[1])
+    assert_equal(127, a[2])
+  end
+
+  def test_uint16_array
+    a = BStruct::Uint16Array.new(10)
+    assert_equal 10, a.length
+
+    a = BStruct::Uint16Array.new([4,5,65535])
+    assert_equal 3, a.length
+    assert_equal 4, a[0]
+    assert_equal 5, a[1]
+    assert_equal 65535, a[2]
+  end
+
+  def test_int16_array
+    a = BStruct::Int16Array.new(10)
+    assert_equal 10, a.length
+
+    a = BStruct::Int16Array.new([-32767,5,32767])
+    assert_equal 3, a.length
+    assert_equal(-32767, a[0])
+    assert_equal(5, a[1])
+    assert_equal(32767, a[2])
+  end
+
+  def test_uint32_array
+    a = BStruct::Uint32Array.new(10)
+    assert_equal 10, a.length
+
+    a = BStruct::Uint32Array.new([4,5,2**32-1])
+    assert_equal 3, a.length
+    assert_equal 4, a[0]
+    assert_equal 5, a[1]
+    assert_equal 2**32-1, a[2]
+  end
+
+  def test_int32_array
+    a = BStruct::Int32Array.new(10)
+    assert_equal 10, a.length
+
+    max = (2**32)/2
+    a = BStruct::Int32Array.new([-max+1,5,max-1])
+    assert_equal 3, a.length
+    assert_equal(-max+1, a[0])
+    assert_equal(5, a[1])
+    assert_equal(max-1, a[2])
+  end
+
+  def test_uint64_array
+    a = BStruct::Uint64Array.new(10)
+    assert_equal 10, a.length
+
+    a = BStruct::Uint64Array.new([4,5,2**64-1])
+    assert_equal 3, a.length
+    assert_equal 4, a[0]
+    assert_equal 5, a[1]
+    assert_equal 2**64-1, a[2]
+  end
+
+  def test_int64_array
+    a = BStruct::Int64Array.new(10)
+    assert_equal 10, a.length
+
+    max = (2**64)/2
+    a = BStruct::Int64Array.new([-max+1,5,max-1])
+    assert_equal 3, a.length
+    assert_equal(-max+1, a[0])
+    assert_equal(5, a[1])
+    assert_equal(max-1, a[2])
+  end
+
+  def test_float32_array
+    a = BStruct::Float32Array.new(10)
+    assert_equal 10, a.length
+
+    a = BStruct::Float32Array.new([1.1920928955078125e-07, -Float::INFINITY, Float::INFINITY])
+    assert_equal 3, a.length
+    assert_equal(1.1920928955078125e-07, a[0])
+    assert_equal(-Float::INFINITY, a[1])
+    assert_equal(Float::INFINITY, a[2])
+  end
+
+  def test_float64_array
+    a = BStruct::Float64Array.new(10)
+    assert_equal 10, a.length
+
+    a = BStruct::Float64Array.new([0.0.next_float, -Float::INFINITY, Float::INFINITY])
+    assert_equal 3, a.length
+    assert_equal(0.0.next_float, a[0])
+    assert_equal(-Float::INFINITY, a[1])
+    assert_equal(Float::INFINITY, a[2])
+  end
+
 end
