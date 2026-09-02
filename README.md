@@ -34,6 +34,11 @@ end
 ball = Sphere.new(4.0, Vec3.new(1.0, 2.0, 3.0))
 ```
 
+## TODO
+
+1. unions
+2. cast method for array types
+
 ## Development
 
 After checking out the repo, run `bin/setup` to install dependencies. Then, run `rake test` to run the tests. You can also run `bin/console` for an interactive prompt that will allow you to experiment.
