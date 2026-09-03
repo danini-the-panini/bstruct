@@ -108,6 +108,106 @@ class TestBStruct < Minitest::Test
     )
   end
 
+  def test_array_of_arrays
+    a = Vec[2][2].new(
+      [Vec.new([1.0, 2.0, 3.0]), Vec.new([2.0, 3.0, 4.0])],
+      [Vec.new([3.0, 4.0, 5.0]), Vec.new([4.0, 5.0, 6.0])]
+    )
+
+    assert_equal([Vec.new([1.0, 2.0, 3.0]), Vec.new([2.0, 3.0, 4.0])], a[0].to_a)
+    assert_equal([Vec.new([3.0, 4.0, 5.0]), Vec.new([2.0, 4.0, 5.0])], a[1].to_a)
+    assert_equal(Vec.new([1.0, 2.0, 3.0]), a[0][0])
+    assert_equal(Vec.new([2.0, 3.0, 4.0]), a[0][1])
+    assert_equal(Vec.new([3.0, 4.0, 5.0]), a[1][0])
+    assert_equal(Vec.new([4.0, 5.0, 6.0]), a[1][1])
+
+    a = Vec[2][].new(
+      [Vec.new([1.0, 2.0, 3.0]), Vec.new([2.0, 3.0, 4.0])],
+      [Vec.new([3.0, 4.0, 5.0]), Vec.new([4.0, 5.0, 6.0])]
+    )
+
+    assert_equal([Vec.new([1.0, 2.0, 3.0]), Vec.new([2.0, 3.0, 4.0])], a[0].to_a)
+    assert_equal([Vec.new([3.0, 4.0, 5.0]), Vec.new([2.0, 4.0, 5.0])], a[1].to_a)
+    assert_equal(Vec.new([1.0, 2.0, 3.0]), a[0][0])
+    assert_equal(Vec.new([2.0, 3.0, 4.0]), a[0][1])
+    assert_equal(Vec.new([3.0, 4.0, 5.0]), a[1][0])
+    assert_equal(Vec.new([4.0, 5.0, 6.0]), a[1][1])
+
+    a = Vec[][2].new(
+      [Vec.new([1.0, 2.0, 3.0]), Vec.new([2.0, 3.0, 4.0])],
+      [Vec.new([3.0, 4.0, 5.0]), Vec.new([4.0, 5.0, 6.0])]
+    )
+
+    assert_equal([Vec.new([1.0, 2.0, 3.0]), Vec.new([2.0, 3.0, 4.0])], a[0].to_a)
+    assert_equal([Vec.new([3.0, 4.0, 5.0]), Vec.new([2.0, 4.0, 5.0])], a[1].to_a)
+    assert_equal(Vec.new([1.0, 2.0, 3.0]), a[0][0])
+    assert_equal(Vec.new([2.0, 3.0, 4.0]), a[0][1])
+    assert_equal(Vec.new([3.0, 4.0, 5.0]), a[1][0])
+    assert_equal(Vec.new([4.0, 5.0, 6.0]), a[1][1])
+
+    a = Vec[][].new(
+      [Vec.new([1.0, 2.0, 3.0]), Vec.new([2.0, 3.0, 4.0])],
+      [Vec.new([3.0, 4.0, 5.0]), Vec.new([4.0, 5.0, 6.0])]
+    )
+
+    assert_equal([Vec.new([1.0, 2.0, 3.0]), Vec.new([2.0, 3.0, 4.0])], a[0].to_a)
+    assert_equal([Vec.new([3.0, 4.0, 5.0]), Vec.new([2.0, 4.0, 5.0])], a[1].to_a)
+    assert_equal(Vec.new([1.0, 2.0, 3.0]), a[0][0])
+    assert_equal(Vec.new([2.0, 3.0, 4.0]), a[0][1])
+    assert_equal(Vec.new([3.0, 4.0, 5.0]), a[1][0])
+    assert_equal(Vec.new([4.0, 5.0, 6.0]), a[1][1])
+
+    a = Vec[2][2][2].new(
+      [
+        [Vec.new([1.0, 2.0, 3.0]), Vec.new([2.0, 3.0, 4.0])],
+        [Vec.new([3.0, 4.0, 5.0]), Vec.new([4.0, 5.0, 6.0])]
+      ],
+      [
+        [Vec.new([5.0, 6.0, 7.0]), Vec.new([6.0, 7.0, 8.0])],
+        [Vec.new([7.0, 8.0, 9.0]), Vec.new([8.0, 9.0, 0.0])]
+      ]
+    )
+    assert_equal([
+      1.0, 2.0, 3.0, 2.0, 3.0, 4.0, 3.0, 4.0, 5.0, 4.0, 5.0, 6.0,
+      5.0, 6.0, 7.0, 6.0, 7.0, 8.0, 7.0, 8.0, 9.0, 8.0, 9.0, 0.0
+    ], a.cast(:float).to_a)
+  end
+
+  def test_array_of_scalar_arrays
+    a = BStruct::Int32[3][2].new(
+      [1,2,3],
+      [2,3,4]
+    )
+    assert_equal([1,2,3], a[0].to_a)
+    assert_equal([2,3,4], a[1].to_a)
+
+    a = BStruct::Int32Array[2].new(
+      [1,2,3],
+      [2,3,4]
+    )
+    assert_equal([1,2,3], a[0].to_a)
+    assert_equal([2,3,4], a[1].to_a)
+
+    a = BStruct::Int32Array[].new(
+      [1,2,3],
+      [2,3,4]
+    )
+    assert_equal([1,2,3], a[0].to_a)
+    assert_equal([2,3,4], a[1].to_a)
+
+    a = BStruct::Int32Array[2][2].new(
+      [
+        [1,2,3],
+        [2,3,4]
+      ],
+      [
+        [3,4,5],
+        [4,5,6]
+      ]
+    )
+    assert_equal([1,2,3,2,3,4,3,4,5,4,5,6], a.cast(:i32).to_a)
+  end
+
   def test_array_member
     v = Vec.new([1.0, 2.0, 3.0])
     assert_equal 3, v.e.length
