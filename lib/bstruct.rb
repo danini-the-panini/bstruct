@@ -16,6 +16,31 @@ class BStruct
     f64: 8, F64: 8
   }.freeze
 
+  ALIASES = {
+    i8: :S8, I8: :S8, ubyte: :U8, byte: :S8, char: :S8, uchar: :u8,
+    i16: :s16, I16: :S16, short: :s16, ushort: :u16,
+    i32: :s32, I32: :S32, int: :s32, uint: :u32,
+    i64: :s64, I64: :S64, long: :s64, ulong: :u64,
+    float: :f32, float32: :f32,
+    double: :f64, float64: :f64
+  }
+
+  def self.sizeof(type)
+    case type
+    when BStruct then type.size
+    when Array then type.type.size * type.count
+    when ScalarArray then SIZEOF[type.type] * type.count
+    when Symbol
+      ty = ALIASES[type] || type
+      if !SIZEOF.key?(ty)
+        raise ::ArgumentError, "unknown type #{type.inspect}"
+      end
+      SIZEOF[ty]
+    else
+      raise ::ArgumentError, "type must be on of Symbol, BStruct, or Array type"
+    end
+  end
+
   attr_reader :buffer
 
   def initialize(buffer = nil)
@@ -37,26 +62,25 @@ class BStruct
 
   def cast(type, *, **)
     case type
-    when Symbol
-      if !SIZEOF.key?(type)
-        raise ::ArgumentError, "unknown type #{type.inspect}"
-      end
-      ScalarArray.new(type, self.class.size/SIZEOF[type], @buffer)
+    when Symbol then return ScalarArray.new(type, self.class.size/::BStruct.sizeof(type), @buffer)
     when Class
       if type < BStruct
-        type.from_buf(@buffer, *, **)
+        return type.from_buf(@buffer, *, **)
       elsif type < ScalarArray
-        type.from_buf(@buffer, *, **)
+        return type.from_buf(@buffer, *, **)
       elsif type < Array
-        type.from_buf(@buffer, self.class, *, **)
+        return type.from_buf(@buffer, self.class, *, **)
       end
-    else
-      raise ::ArgumentError, "type must be a symbol, BStruct, or Array type, found #{type.inspect}"
     end
+    raise ::ArgumentError, "type must be a symbol, BStruct, or Array type, found #{type.inspect}"
   end
 
-  def self.[](count = nil)
-    Array[self, count]
+  def self.[](*args)
+    case args
+    in [] then Array[self]
+    in [Integer => count] then Array[self, count]
+    else Array[self, args.count].new(args)
+    end
   end
 
   def self.define(&block)
@@ -109,10 +133,11 @@ class BStruct
     def self.from_buf(buffer, type = :u8, *, **)
       case type
       when Symbol
-        if !SIZEOF.key?(type)
+        ty = ALIASES[type] || type
+        if !SIZEOF.key?(ty)
           raise ::ArgumentError, "unknown type #{type.inspect}"
         end
-        return ScalarArray.from_buf(buffer, type, *, **)
+        return ScalarArray.from_buf(buffer, ty, *, **)
       when Class
         if type < BStruct
           return Array.new(type, buffer.size / type.size, buffer)
@@ -125,11 +150,7 @@ class BStruct
 
     def cast(type, *, **)
       case type
-      when Symbol
-        if !SIZEOF.key?(type)
-          raise ::ArgumentError, "cannot cast to #{type.inspect}"
-        end
-        ScalarArray.new(type, @buffer.size/SIZEOF[type], @buffer)
+      when Symbol then ScalarArray.new(type, @buffer.size/::BStruct.sizeof(type), @buffer)
       when Class then type.from_buf(@buffer, *, **)
       else raise ::ArgumentError, "cannot cast to #{type.inspect}"
       end
@@ -268,6 +289,11 @@ class BStruct
         def self.from_buf(buffer, *, **)
           new(buffer)
         end
+
+        def to_s
+          "#{self.class.type}#{self.to_a.inspect}"
+        end
+        alias :inspect :to_s
       end
     end
   end
@@ -278,11 +304,7 @@ class BStruct
     attr_reader :buffer, :type
 
     def initialize(type, count, buffer = nil, &)
-      if !SIZEOF.key?(type)
-        raise ::ArgumentError, "unknown type #{type.inspect}"
-      end
-
-      @size = SIZEOF[type]
+      @size = ::BStruct.sizeof(type)
 
       if buffer
         if buffer.size != count*@size
@@ -293,12 +315,12 @@ class BStruct
         @buffer = ::IO::Buffer.new(@size*count)
       end
 
-      @type = type
+      @type = ALIASES[type] || type
       @count = count
 
       if block_given?
         count.times do |i|
-          @buffer.set_value(type, i*@size, yield(i))
+          @buffer.set_value(@type, i*@size, yield(i))
         end
       end
     end
@@ -306,16 +328,13 @@ class BStruct
     def to_buf = @buffer
 
     def self.from_buf(buffer, type = :u8, *, **)
-      new(type, buffer.size / SIZEOF[type], buffer)
+      new(type, buffer.size / ::BStruct.sizeof(type), buffer)
     end
 
     def cast(type, *, **)
       case type
       when Symbol
-        if !SIZEOF.key?(type)
-          raise ::ArgumentError, "unknown type #{type.inspect}"
-        end
-        return ScalarArray.new(type, @buffer.size/SIZEOF[type], @buffer)
+        return ScalarArray.new(type, @buffer.size/::BStruct.sizeof(type), @buffer)
       when Class
         if type < BStruct
           return type.from_buf(@buffer)
@@ -468,7 +487,7 @@ class BStruct
           when :big, :network then TYPE.to_s.upcase.to_sym
           else raise ::ArgumentError, "unknown endianness \#{endian}"
           end
-          size = SIZEOF[type]
+          size = ::BStruct.sizeof(type)
           case arg
           when Integer then super(type, arg)
           when ::IO::Buffer then super(type, arg.size/size, arg)
@@ -516,7 +535,7 @@ class BStruct
   end
 
   def self._check_to_scalar_buf(val, type, count)
-    _check_to_buf_generic(val, type, SIZEOF[type], count, ScalarArray)
+    _check_to_buf_generic(val, type, sizeof(type), count, ScalarArray)
   end
 
   def self._check_to_struct_buf(val, type, count)
@@ -539,6 +558,8 @@ class BStruct
       @endianness = :big
     end
     alias :big! :big_endian!
+    alias :network_endian! :big_endian!
+    alias :network! :big_endian!
 
     def little_endian?
       @endianness == :little
@@ -549,6 +570,8 @@ class BStruct
       @endianness == :big
     end
     alias :big? :big_endian?
+    alias :network_endian? :big_endian?
+    alias :network? :big_endian?
 
     def u8 name, count = 1
       _add_field name, :U8, 1, count
@@ -563,47 +586,47 @@ class BStruct
     alias :byte :s8
     alias :char :s8
 
-    def u16 name, count = 1
-      _add_field name, :u16, 2, count
+    def u16 name, count = 1, endian: @endianness
+      _add_field name, :u16, 2, count, endian:
     end
     alias :ushort :u16
 
-    def s16 name, count = 1
-      _add_field name, :s16, 2, count
+    def s16 name, count = 1, endian: @endianness
+      _add_field name, :s16, 2, count, endian:
     end
     alias :i16 :s16
     alias :short :s16
 
-    def u32 name, count = 1
-      _add_field name, :u32, 4, count
+    def u32 name, count = 1, endian: @endianness
+      _add_field name, :u32, 4, count, endian:
     end
     alias :uint :u32
 
-    def s32 name, count = 1
-      _add_field name, :s32, 4, count
+    def s32 name, count = 1, endian: @endianness
+      _add_field name, :s32, 4, count, endian:
     end
     alias :i32 :s32
     alias :int :s32
 
-    def u64 name, count = 1
-      _add_field name, :u64, 8, count
+    def u64 name, count = 1, endian: @endianness
+      _add_field name, :u64, 8, count, endian:
     end
     alias :ulong :u64
 
-    def s64 name, count = 1
-      _add_field name, :s64, 8, count
+    def s64 name, count = 1, endian: @endianness
+      _add_field name, :s64, 8, count, endian:
     end
     alias :i64 :s64
     alias :long :s64
 
-    def f32 name, count = 1
-      _add_field name, :f32, 4, count
+    def f32 name, count = 1, endian: @endianness
+      _add_field name, :f32, 4, count, endian:
     end
     alias :float32 :f32
     alias :float :f32
 
-    def f64 name, count = 1
-      _add_field name, :f64, 8, count
+    def f64 name, count = 1, endian: @endianness
+      _add_field name, :f64, 8, count, endian:
     end
     alias :float64 :f64
     alias :double :f64
@@ -630,7 +653,9 @@ class BStruct
           def fields = @fields
 
           def to_s
-            "#{name || 'BStruct'}[#{@size}, #{@fields.length}]"
+            return name if name
+
+            "BStruct[#{@size}, #{@fields.length}]"
           end
           alias :inspect :to_s
         end
@@ -740,13 +765,16 @@ class BStruct
 
     private
 
-      def _add_field(name, type, size, count)
-        type = type.to_s.upcase.to_sym if big_endian?
+      def _add_field(name, type, size, count, endian: @endianness)
+        type = type.to_s.upcase.to_sym if endian == :big || endian == :network
         @fields[name] = Field.new(size:, type:, offset: @offset, count:)
         @offset += size*count
       end
 
       def _add_struct_field(name, type, count)
+        unless type < ::BStruct
+          ::Kernel.raise ::ArgumentError, "struct type must be a BStruct, given #{type.inspect}"
+        end
         @fields[name] = Field.new(size: type.size, type:, offset: @offset, count:)
         @offset += type.size*count
       end

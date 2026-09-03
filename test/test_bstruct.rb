@@ -72,7 +72,7 @@ class TestBStruct < Minitest::Test
     foos[12].id = 789
     assert_equal 789, foos[12].id
 
-    foos = Foo[5].new(
+    foos = Foo[].new(
       Foo.new(10, 1.0, 100),
       Foo.new(20, 2.0, 200),
       Foo.new(30, 3.0, 300),
@@ -95,12 +95,16 @@ class TestBStruct < Minitest::Test
     assert_equal([30, 40, 50], foos[-3..-1].map(&:id))
 
     assert_equal(
-      Foo[2].new(Foo.new(1, 1.0, 2), Foo.new(2, 2.0, 3)),
+      Foo[].new(Foo.new(1, 1.0, 2), Foo.new(2, 2.0, 3)),
       Foo[2].new(Foo.new(1, 1.0, 2), Foo.new(2, 2.0, 3))
     )
     assert_equal(
       [Foo.new(1, 1.0, 2), Foo.new(2, 2.0, 3)],
       Foo[2].new(Foo.new(1, 1.0, 2), Foo.new(2, 2.0, 3))
+    )
+    assert_equal(
+      Foo[].new(Foo.new(1, 1.0, 2), Foo.new(2, 2.0, 3)),
+      Foo[Foo.new(1, 1.0, 2), Foo.new(2, 2.0, 3)]
     )
   end
 
@@ -178,7 +182,7 @@ class TestBStruct < Minitest::Test
     assert_equal 2, a16.count
     assert_equal([12+(34<<8), 56+(78<<8)], a16.to_a)
 
-    a16 = a.cast(:s16)
+    a16 = a.cast(:i16)
     assert_equal 2, a16.count
     assert_equal([12+(34<<8), 56+(78<<8)], a16.to_a)
 
