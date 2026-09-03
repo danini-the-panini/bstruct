@@ -21,6 +21,12 @@ class TestBStruct < Minitest::Test
     float :e, 3
   end
 
+  Color = BStruct.define do
+    float :r
+    float :g
+    float :b
+  end
+
   Mat = BStruct.define do
     float :e, 9
   end
@@ -140,6 +146,82 @@ class TestBStruct < Minitest::Test
     assert_equal([2.0, 3.0, 4.0], m.e[1, 3].to_a)
     assert_equal([7.0, 8.0], m.e[-3, 2].to_a)
     assert_equal([7.0, 8.0, 9.0], m.e[-3..-1].to_a)
+  end
+
+  def test_cast_struct
+    v = Vec.new([1.0, 2.0, 3.0])
+    c = v.cast(Color)
+    assert_equal 1.0, c.r
+    assert_equal 2.0, c.g
+    assert_equal 3.0, c.b
+
+    a = v.cast(BStruct::Float32Array)
+    assert_equal 3, a.length
+    assert_equal([1.0, 2.0, 3.0], a.to_a)
+
+    a = v.cast(:f32)
+    assert_equal 3, a.length
+    assert_equal([1.0, 2.0, 3.0], a.to_a)
+
+    m = Mat.new([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0])
+    a = m.cast(Vec[])
+    assert_equal 3, a.length
+    assert_equal([1.0, 2.0, 3.0], a[0].e.to_a)
+    assert_equal([4.0, 5.0, 6.0], a[1].e.to_a)
+    assert_equal([7.0, 8.0, 9.0], a[2].e.to_a)
+  end
+
+  def test_cast_scalar_array
+    a = BStruct::Uint8Array.new([12, 34, 56, 78])
+
+    a16 = a.cast(BStruct::Int16Array)
+    assert_equal 2, a16.count
+    assert_equal([12+(34<<8), 56+(78<<8)], a16.to_a)
+
+    a16 = a.cast(:s16)
+    assert_equal 2, a16.count
+    assert_equal([12+(34<<8), 56+(78<<8)], a16.to_a)
+
+    a = BStruct::Float32Array.new([1.0, 2.0, 3.0])
+    v = a.cast(Vec)
+    assert_equal([1.0, 2.0, 3.0], v.e.to_a)
+
+    c = a.cast(Color)
+    assert_equal 1.0, c.r
+    assert_equal 2.0, c.g
+    assert_equal 3.0, c.b
+
+    a = BStruct::Float32Array.new([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0])
+    va = a.cast(Vec[])
+    assert_equal 3, va.length
+    assert_equal([1.0, 2.0, 3.0], va[0].e.to_a)
+    assert_equal([4.0, 5.0, 6.0], va[1].e.to_a)
+    assert_equal([7.0, 8.0, 9.0], va[2].e.to_a)
+  end
+
+  def test_cast_struct_array
+    a = Vec[].new(
+      Vec.new([1.0, 2.0, 3.0]),
+      Vec.new([4.0, 5.0, 6.0]),
+      Vec.new([7.0, 8.0, 9.0])
+    )
+
+    a2 = a.cast(BStruct::Float32Array)
+    assert_equal 9, a2.length
+    assert_equal([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0], a2.to_a)
+
+    a2 = a.cast(:f32)
+    assert_equal 9, a2.length
+    assert_equal([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0], a2.to_a)
+
+    m = a.cast(Mat)
+    assert_equal([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0], m.e.to_a)
+
+    a2 = a.cast(Color[])
+    assert_equal 3, a2.length
+    assert_equal 1.0, a2[0].r; assert_equal 2.0, a2[0].g; assert_equal 3.0, a2[0].b;
+    assert_equal 4.0, a2[1].r; assert_equal 5.0, a2[1].g; assert_equal 6.0, a2[1].b;
+    assert_equal 7.0, a2[2].r; assert_equal 8.0, a2[2].g; assert_equal 9.0, a2[2].b;
   end
 
   def test_uint8_array
