@@ -38,6 +38,8 @@ ball = Sphere.new(4.0, Vec3.new(1.0, 2.0, 3.0))
 
 1. unions
 2. dup/clone
+3. create from String
+4. predicate methods for primitive base types (e.g. `int32?`)
 
 ## Development
 

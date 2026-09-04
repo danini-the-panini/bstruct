@@ -163,6 +163,15 @@ class BStruct
     def self.count = @count
     def self.element_size = @type&.size
 
+    def self.base_type
+      return nil if type.nil?
+      if type < Array || type < ScalarArray
+        type.base_type
+      else
+        type
+      end
+    end
+
     def self.size
       return nil unless count && element_size
       element_size*count
@@ -414,6 +423,10 @@ class BStruct
     def self.element_size
       return nil unless type
       ::BStruct.sizeof(type)
+    end
+
+    def self.base_type
+      type
     end
 
     def self.size
