@@ -21,7 +21,7 @@ class BStruct
       when Class
         return type.from_buf(buffer) if type.respond_to?(:from_buf)
       end
-      raise ::ArgumentError, "type must be a symbol, BStruct, or Array type, found #{type.inspect}"
+      raise ::ArgumentError, "type must be a symbol, or a class responding to from_buf, found #{type.inspect}"
     end
   end
 
@@ -45,7 +45,7 @@ class BStruct
     i64: :s64, I64: :S64, long: :s64, ulong: :u64,
     float: :f32, float32: :f32,
     double: :f64, float64: :f64
-  }
+  }.freeze
 
   NAMEOF = {
     U8:  "Uint8", S8:  "Int8",
@@ -66,11 +66,11 @@ class BStruct
       return SIZEOF[ty]
     when BStruct, Array, ScalarArray, Scalar, Tuple then type.size
     when Class
-      if type < BStruct ||
-         type < Scalar ||
-         type < Tuple ||
-         type < ScalarArray ||
-         type < Array
+      if type <= BStruct ||
+         type <= Scalar ||
+         type <= Tuple ||
+         type <= ScalarArray ||
+         type <= Array
         return type.size
       end
     end
@@ -130,19 +130,19 @@ class BStruct
     end
   end
 
-  def self.define(&block)
-    b = Builder.new
-    if block.arity > 1
-      yield b
+  def self.define(**kwargs, &block)
+    if kwargs.empty? && block_given?
+      Builder.with_block!(&block)
+    elsif !kwargs.empty? && !block_given?
+      Builder.with_kwargs!(**kwargs)
     else
-      b.instance_exec(&block)
+      raise ArgumentError, "must pass either keyword arguments or block"
     end
-    b.build
   end
 
   def ==(other)
     return false unless other.is_a?(self.class)
-    return @buffer <=> other.buffer
+    return (@buffer <=> other.buffer).zero?
   end
   alias :eql? :==
 
@@ -169,8 +169,11 @@ class BStruct
     end
 
     def initialize(buffer = nil, type: self.class.type, count: self.class.count, &)
+      if count && !count.positive?
+        raise ArgumentError, "count must be positive"
+      end
       if type.nil?
-        raise ArgumentError, "cannot create an array without count"
+        raise ArgumentError, "cannot create an array without type"
       end
       if !self.class.matches_type?(type)
         raise ::ArgumentError, "tried to initialize typed array with incomplatible type (given #{type}, expected #{self.class.type})"
@@ -206,18 +209,8 @@ class BStruct
 
     def to_buf = @buffer
 
-    def self.from_buf(buffer, type: self.type)
-      case type
-      when Symbol
-        ty = ALIASES[type] || type
-        if !SIZEOF.key?(ty)
-          raise ::ArgumentError, "unknown type #{type.inspect}"
-        end
-        return ScalarArray.from_buf(buffer, type: ty)
-      when Class
-        type[].new(buffer)
-      end
-      raise ::ArgumentError, "type must be a symbol, BStruct, or Array type, found #{type.inspect}"
+    def self.from_buf(buffer)
+      new(buffer)
     end
 
     def self.from_value(val)
@@ -244,9 +237,7 @@ class BStruct
       end
     end
 
-    def length
-      @count
-    end
+    def length = @count
 
     def size = @buffer.size
 
@@ -267,7 +258,7 @@ class BStruct
     def ==(other)
       case other
       when Array
-        return self.type == other.type && @buffer <=> other.buffer
+        return self.type == other.type && (@buffer <=> other.buffer).zero?
       when ::Array
         return to_a == other
       else false
@@ -276,7 +267,7 @@ class BStruct
 
     def eql?(other)
       return false unless other.is_a?(Array)
-      return self.type == other.type && @buffer <=> other.buffer
+      return self.type == other.type && (@buffer <=> other.buffer).zero?
     end
 
     def hash
@@ -430,7 +421,18 @@ class BStruct
       count*element_size
     end
 
+    def self.big
+      ScalarArray(type, count, endian: :big)
+    end
+
+    def self.little
+      ScalarArray(type, count, endian: :little)
+    end
+
     def initialize(buffer = nil, type: self.class.type, count: self.class.count, endian: self.class.endianness, &)
+      if count && !count.positive?
+        raise ArgumentError, "count must be positive"
+      end
       raise ArgumentError, "type must be a symbol, found #{type.class}" unless type.is_a?(Symbol)
       if !self.class.matches_type?(type)
         raise ::ArgumentError, "tried to initialize typed array with incomplatible type (given #{type}, expected #{self.class.type})"
@@ -471,7 +473,7 @@ class BStruct
 
     def to_buf = @buffer
 
-    def self.from_buf(buffer, type: self.type)
+    def self.from_buf(buffer)
       new(type, buffer.size / ::BStruct.sizeof(type), buffer)
     end
 
@@ -490,9 +492,7 @@ class BStruct
       type == styp
     end
 
-    def length
-      @count
-    end
+    def length = @count
 
     def size
       return nil if length.nil?
@@ -521,7 +521,7 @@ class BStruct
     def ==(other)
       case other
       when ScalarArray
-        return self.type == other.type && @buffer <=> other.buffer
+        return self.type == other.type && (@buffer <=> other.buffer).zero?
       when ::Array
         return to_a == other
       else false
@@ -530,7 +530,7 @@ class BStruct
 
     def eql?(other)
       return false unless other.is_a?(ScalarArray)
-      return self.type == other.type && @buffer <=> other.buffer
+      return self.type == other.type && (@buffer <=> other.buffer).zero?
     end
 
     def hash
@@ -669,23 +669,33 @@ class BStruct
     def to_s = value.to_s
     def inspect = "#{self.class.name}(#{value})"
 
-    def self.from_buf(buffer, type: self.type)
-      new(buffer.get_value(type, 0))
-    end
-
-    def self.from_value(value)
-      new(value)
-    end
-
     def copy_to(buf, offset)
       buf.set_value(self.class.type, offset, value)
     end
 
-    def self.[](count = nil)
-      if count.nil?
-        @_array_type ||= ::BStruct::ScalarArray(type)
-      else
-        ::BStruct::ScalarArray(type, count)
+    class << self
+      def from_buf(buffer)
+        new(buffer.get_value(type, 0))
+      end
+
+      def from_value(value)
+        new(value)
+      end
+
+      def [](count = nil)
+        if count.nil?
+          @_array_type ||= ::BStruct::ScalarArray(type)
+        else
+          ::BStruct::ScalarArray(type, count)
+        end
+      end
+
+      def big
+        ::BStruct::Scalar(type.to_s.upcase.to_sym)
+      end
+
+      def little
+        ::BStruct::Scalar(type.to_s.downcase.to_sym)
       end
     end
   end
@@ -696,7 +706,8 @@ class BStruct
       raise ::ArgumentError, "unknown type #{type.inspect}"
     end
 
-    Class.new(Scalar) do
+    @_scalar_types ||= {}
+    @_scalar_types[ty] ||= Class.new(Scalar) do
       @type = ty
       @size = SIZEOF[ty]
       def self.type = @type
@@ -721,6 +732,15 @@ class BStruct
   Float32 = Scalar(:f32)
   Float64 = Scalar(:f64)
 
+  BigUint16 = Scalar(:U16)
+  BigInt16 = Scalar(:S16)
+  BigUint32 = Scalar(:U32)
+  BigInt32 = Scalar(:S32)
+  BigUint64 = Scalar(:U64)
+  BigInt64 = Scalar(:S64)
+  BigFloat32 = Scalar(:F32)
+  BigFloat64 = Scalar(:F64)
+
   Uint8Array = Uint8[]
   Int8Array = Int8[]
   Uint16Array = Uint16[]
@@ -731,6 +751,15 @@ class BStruct
   Int64Array = Int64[]
   Float32Array = Float32[]
   Float64Array = Float64[]
+
+  BigUint16Array = BigUint16[]
+  BigInt16Array = BigInt16[]
+  BigUint32Array = BigUint32[]
+  BigInt32Array = BigInt32[]
+  BigUint64Array = BigUint64[]
+  BigInt64Array = BigInt64[]
+  BigFloat32Array = BigFloat32[]
+  BigFloat64Array = BigFloat64[]
 
   class Tuple
     include Enumerable
@@ -801,7 +830,7 @@ class BStruct
 
     def ==(other)
       return false unless other.is_a?(self.class)
-      @buffer <=> other.buffer
+      (@buffer <=> other.buffer).zero?
     end
     alias :eql? :==
 
@@ -836,42 +865,137 @@ class BStruct
       else ::BStruct.Array(self, args.length).new(args)
       end
     end
-  end
 
-  def self.Tuple(*types)
-    fields = []
-    offset = 0
+    def self.from_fields(fields, size)
+      raise ArgumentError, "size must be positive, found #{size}" unless size.positive?
+      Class.new(Tuple) do
+        @fields = fields
+        @size = size
 
-    types.each do |type|
-      type ||= 1
-      if type.is_a?(Integer)
-        offset += type
-      else
-        type = type.type if type.kind_of?(Scalar)
-        type = ALIASES[type] || type if type.is_a?(Symbol)
-        size = ::BStruct.sizeof(type)
-        if size.nil?
-          raise ::ArgumentError, "cannot define tuple with unsized type #{type}"
+        class << self
+          def fields = @fields
+          def size = @size
+          def length = @fields.length
+          def to_s
+            return name if name
+            "Tuple(#{@fields.map { ::BStruct.nameof(it) || it }.join(", ")})"
+          end
+          alias :inspect :to_s
         end
-        fields << Field.new(size: ::BStruct.sizeof(type), type:, offset:)
-        offset += size
       end
     end
 
-    Class.new(Tuple) do
-      @fields = fields
-      @size = offset
-
-      class << self
-        def fields = @fields
-        def size = @size
-        def length = @fields.length
-        def to_s
-          return name if name
-          "Tuple(#{@fields.map { ::BStruct.nameof(it) || it }.join(", ")})"
-        end
-        alias :inspect :to_s
+    class Builder < BasicObject
+      def self.with_block!(&block)
+        with_types!(new.instance_exec(&block))
       end
+
+      def self.with_types!(types)
+        fields, size = _parse(types)
+        ::BStruct::Tuple.from_fields(fields, size)
+      end
+
+      def self._parse(types)
+        offset = 0
+        fields = types.filter_map do |type|
+          if type.is_a?(::Symbol)
+            type = ALIASES[type] || type
+            subsize = ::BStruct.sizeof(type)
+            ::BStruct::Builder._make_scalar_field(type, subsize, offset).tap { offset += subsize }
+          elsif type.nil?
+            offset += 1
+            nil
+          elsif type.is_a?(::Integer)
+            offset += type
+            nil
+          elsif type.is_a?(::Array)
+            subfields, subsize = ::BStruct::Typle::Builder._parse(type)
+            subtype = ::BStruct::Tuple.from_fields(subfields, subsize)
+            ::BStruct::Builder._make_field(subtype, offset).tap { offset += subsize }
+          else
+            ::BStruct::Builder._make_field(type, offset).tap { offset += type.size }
+          end
+        end
+        [fields, offset]
+      end
+
+      def big(type)
+        if type.is_a?(::Symbol)
+          ::BStruct::ALIASES[::BStruct::ALIASES[type].to_s.upcase.to_sym]
+        else
+          if type < ::Scalar || type < ::ScalarArray
+            type.big
+          else
+            ::Kernel.raise ::ArgumentError, "cannot make big endian #{type}"
+          end
+        end
+      end
+
+      def little(type)
+        if type.is_a?(::Symbol)
+          ::BStruct::ALIASES[::BStruct::ALIASES[type].to_s.downcase.to_sym]
+        else
+          if type < ::Scalar || type < ::ScalarArray
+            type.little
+          else
+            ::Kernel.raise ::ArgumentError, "cannot make little endian #{type}"
+          end
+        end
+      end
+
+      def u8 = ::BStruct::Uint8
+      alias :ubyte :u8
+      alias :uchar :u8
+
+      def s8 = ::BStruct::Int8
+      alias :i8 :s8
+      alias :byte :s8
+      alias :char :s8
+
+      def u16 = ::BStruct::Uint16
+      alias :ushort :u16
+
+      def s16 = ::BStruct::Int16
+      alias :i16 :s16
+      alias :short :s16
+
+      def u32 = ::BStruct::Uint32
+      alias :uint :u32
+
+      def s32 = ::BStruct::Int32
+      alias :i32 :s32
+      alias :int :s32
+
+      def u64 = ::BStruct::Uint64
+      alias :ulong :u64
+
+      def s64 = ::BStruct::Int64
+      alias :i64 :s64
+      alias :long :s64
+
+      def f32 = ::BStruct::Float32
+      alias :float32 :f32
+      alias :float :f32
+
+      def f64 = ::BStruct::Float64
+      alias :float64 :f64
+      alias :double :f64
+
+      def padding(bytes = 1)
+        bytes
+      end
+      alias :pad :padding
+      alias :__ :padding
+    end
+  end
+
+  def self.Tuple(*types, &block)
+    if types.empty? && block_given?
+      Tuple::Builder.with_block!(&block)
+    elsif !types.empty? && !block_given?
+      Tuple::Builder.with_types!(types)
+    else
+      raise ArgumentError, "must pass either arguments or block"
     end
   end
 
@@ -912,229 +1036,262 @@ class BStruct
 
   class Builder < BasicObject
     def initialize
-      @endianness = :little
+      @endian = :little
       @fields = {}
       @offset = 0
     end
 
+    def with_block!(&block)
+      instance_exec(&block)
+      self
+    end
+
+    def with_kwargs!(**kwargs)
+      kwargs.each do |name, type|
+        case type
+        when ::Symbol
+          type = ::BStruct::ALIASES[type] || type
+          size = ::BStruct.sizeof(type)
+          add_scalar_field!(name, type, size)
+        else
+          add_field!(type)
+        end
+      end
+      self
+    end
+
+    def self.with_block!(&block)
+      new.with_block!(&block).build!
+    end
+
+    def self.with_kwargs!(**kwargs)
+      new.with_kwargs!(**kwargs).build!
+    end
+
+    def fields! = @fields
+    def offset! = @offset
+    alias :size! :offset!
+
+    def build!
+      ::BStruct.from_fields(fields!, size!)
+    end
+
+    def method_missing(name, *args, **kwargs, &block)
+      if args.empty? && kwargs.empty? && block.nil?
+        type = ::BStruct::ALIASES[name.to_sym] || name.to_sym
+        type = type.to_s.upcase.to_sym if @endian == :big
+        case type
+        when :u8 then Uint8
+        when :s8 then Int8
+        when :u16 then Uint16
+        when :s16 then Int16
+        when :u32 then Uint32
+        when :s32 then Int32
+        when :u64 then Uint64
+        when :s64 then Int64
+        when :f32 then Float32
+        when :f64 then Float64
+        when :U8 then BigUint8
+        when :S8 then BigInt8
+        when :U16 then BigUint16
+        when :S16 then BigInt16
+        when :U32 then BigUint32
+        when :S32 then BigInt32
+        when :U64 then BigUint64
+        when :S64 then BigInt64
+        when :F32 then BigFloat32
+        when :F64 then BigFloat64
+        else ::Kernel.raise ::ArgumentError, "unknown type #{name}"
+        end
+      else
+        cargs = args.compact
+        if cargs.length != 1 || !kwargs.empty? || !block.nil?
+          ::Kernel.raise ::ArgumentError, "wrong number of arguments (given #{args.length}, expected 1..2)"
+        end
+        type = cargs.first
+        if type.is_a?(::Symbol)
+          add_scalar_field!(name, ::BStruct::ALIASES[type] || type, ::BStruct.sizeof(type), endian: @next_endian)
+          @next_endian = @endian
+        else
+          add_field!(name, type)
+        end
+      end
+    end
+    alias :field! :method_missing
+
+    def respond_to_missing?(name)
+      name.to_s.match?(/\A[a-z_][a-zA-Z0-9_]*\z/)
+    end
+
     def little_endian!
-      @endianness = :little
+      @endian = :little
     end
     alias :little! :little_endian!
 
     def big_endian!
-      @endianness = :big
+      @endian = :big
     end
     alias :big! :big_endian!
     alias :network_endian! :big_endian!
     alias :network! :big_endian!
 
     def little_endian?
-      @endianness == :little
+      @endian == :little
     end
     alias :little? :little_endian?
 
     def big_endian?
-      @endianness == :big
+      @endian == :big
     end
     alias :big? :big_endian?
     alias :network_endian? :big_endian?
     alias :network? :big_endian?
 
-    def u8 name, count = 1
-      _add_field name, :U8, 1, count
-    end
-    alias :ubyte :u8
-    alias :uchar :u8
-
-    def s8 name, count = 1
-      _add_field name, :S8, 1, count
-    end
-    alias :i8 :s8
-    alias :byte :s8
-    alias :char :s8
-
-    def u16 name, count = 1, endian: @endianness
-      _add_field name, :u16, 2, count, endian:
-    end
-    alias :ushort :u16
-
-    def s16 name, count = 1, endian: @endianness
-      _add_field name, :s16, 2, count, endian:
-    end
-    alias :i16 :s16
-    alias :short :s16
-
-    def u32 name, count = 1, endian: @endianness
-      _add_field name, :u32, 4, count, endian:
-    end
-    alias :uint :u32
-
-    def s32 name, count = 1, endian: @endianness
-      _add_field name, :s32, 4, count, endian:
-    end
-    alias :i32 :s32
-    alias :int :s32
-
-    def u64 name, count = 1, endian: @endianness
-      _add_field name, :u64, 8, count, endian:
-    end
-    alias :ulong :u64
-
-    def s64 name, count = 1, endian: @endianness
-      _add_field name, :s64, 8, count, endian:
-    end
-    alias :i64 :s64
-    alias :long :s64
-
-    def f32 name, count = 1, endian: @endianness
-      _add_field name, :f32, 4, count, endian:
-    end
-    alias :float32 :f32
-    alias :float :f32
-
-    def f64 name, count = 1, endian: @endianness
-      _add_field name, :f64, 8, count, endian:
-    end
-    alias :float64 :f64
-    alias :double :f64
-
-    def struct type, name, count = 1
-      _add_struct_field name, type, count
-    end
-    alias :field :struct
-    alias :array :struct
-    alias :tuple :struct
-
-    def padding(bytes = 1)
-      @offset += bytes
-    end
-    alias :pad :padding
-    alias :__ :padding
-
-    def build
-      fields = @fields
-      size = @offset
-      ::Class.new(::BStruct) do
-        @fields = fields
-        @size = size
-
-        class << self
-          def size = @size
-          def fields = @fields
-
-          def to_s
-            return name if name
-            "BStruct[#{@size}, #{@fields.length}]"
-          end
-          alias :inspect :to_s
-        end
-
-        def initialize(*args, **kwargs)
-          return super if args.count == 1 && args.first.is_a?(::IO::Buffer)
-
-          super()
-          args_with_fields = if kwargs.empty? && !args.empty?
-            if args.length > self.class.fields.count
-              raise ::ArgumentError, "wrong number of argument (given #{args.length}, expected 0..#{self.class.fields.count})"
-            end
-            args.zip(self.class.fields.values)
-          elsif args.empty? && !kwargs.empty?
-            kwargs.map do |k, v|
-              raise ::ArgumentError, "unknown keyword #{k.inspect}" unless self.class.fields.key?(k)
-              [v, self.class.fields[k]]
-            end
-          elsif args.empty? && kwargs.empty?
-            []
-          else
-            # TODO: maybe mix?
-            raise ::ArgumentError, "cannot mix positional arguments and keyword arguments"
-          end
-
-          args_with_fields.each do |arg, field|
-            case field.type
-            when ::Symbol
-              @buffer.set_value(field.type, field.offset, arg)
-            else
-              field.type.from_value(arg).copy_to(@buffer, field.offset)
-            end
-          end
-        end
-
-        def inspect
-          "#<#{self.class} #{self.class.fields.map do |name, field|
-            "@#{name}=#{
-              if field.count == 1
-                self.send(name).inspect
-              else
-                self.send(name).to_a.inspect
-              end
-            }"
-          end.join(" ")}>"
-        end
-        alias :to_s :inspect
-
-        fields.each do |name, field|
-          case field.type
-          when ::Symbol
-            class_eval <<-RUBY, __FILE__, __LINE__+1
-              def #{name}
-                @buffer.get_value(:#{field.type}, #{field.offset})
-              end
-              def #{name}=(value)
-                @buffer.set_value(:#{field.type}, #{field.offset}, value)
-              end
-            RUBY
-          else
-            class_eval <<-RUBY, __FILE__, __LINE__+1
-              def #{name}
-                self.class.fields[:#{name}].type
-                  .from_buf(@buffer.slice(#{field.offset}, #{field.size}))
-              end
-              def #{name}=(value)
-                self.class.fields[:#{name}].type
-                  .from_value(value)
-                  .copy_to(@buffer, #{field.offset})
-              end
-            RUBY
-          end
-        end
+    def __(*args, **kwargs, &block)
+      if args.empty? && kwargs.empty? && block.nil?
+        @offset += 1
+        1
+      elsif args.length == 1 && args.first.is_a?(::Integer) && kwargs.empty? && block.nil?
+        @offset += args.first
+        args.first
+      else
+        field!(:__, *args, **kwargs, &block)
       end
+    end
+
+    def self._make_scalar_field(type, size, offset, count: 1, endian: @endian)
+      type = type.to_s.upcase.to_sym if endian == :big || endian == :network
+      if count > 1
+        type = ::BStruct.ScalarArray(type, count)
+        size = type.size
+      end
+      Field.new(size:, type:, offset:)
+    end
+
+    def self._make_field(type, offset, count: 1)
+      unless type < ::BStruct || type < ::BStruct::Array || type < ::BStruct::ScalarArray || type < ::BStruct::Tuple || type < ::BStruct::Scalar
+        ::Kernel.raise ::ArgumentError, "struct type must be a BStruct, Tuple, Scalar, or Array type, given #{type.inspect}"
+      end
+      if count > 1
+        type = type[count]
+      end
+      if type.size.nil?
+        ::Kernel.raise ::ArgumentError, "cannot define struct with unsized type #{type}"
+      end
+      Field.new(size: type.size, type:, offset:)
     end
 
     private
 
-      def _add_field(name, type, size, count, endian: @endianness)
+      def add_scalar_field!(name, type, size, count = 1, endian: @endian)
         name = name.to_sym if name.is_a?(::String)
         unless name.is_a?(::Symbol)
           ::Kernel.raise ::ArgumentError, "name must be a String or Symbol, found #{name.class}"
         end
-        type = type.to_s.upcase.to_sym if endian == :big || endian == :network
-        if count > 1
-          type = ::BStruct.ScalarArray(type, count)
-          size = type.size
-        end
-        @fields[name] = Field.new(size:, type:, offset: @offset)
-        @offset += size
+        # TODO: check if name already defined
+        field = ::BStruct::Builder._make_scalar_field(type, size, @offset, count:, endian:)
+        @fields[name] = field
+        @offset += field.size
+        field
       end
 
-      def _add_struct_field(name, type, count)
+      def add_field!(name, type, count = 1)
         name = name.to_sym if name.is_a?(::String)
         unless name.is_a?(::Symbol)
           raise ::ArgumentError, "name must be a String or Symbol, found #{name.class}"
         end
-        unless type < ::BStruct || type < ::BStruct::Array || type < ::BStruct::ScalarArray || type < ::BStruct::Tuple || type < ::BStruct::Scalar
-          ::Kernel.raise ::ArgumentError, "struct type must be a BStruct, Tuple, Scalar, or Array type, given #{type.inspect}"
-        end
-        if count > 1
-          type = type[count]
-        end
-        if type.size.nil?
-          ::Kernel.raise ::ArgumentError, "cannot define struct with unsized type #{type}"
-        end
-        @fields[name] = Field.new(size: type.size, type:, offset: @offset)
-        @offset += type.size*count
+        # TODO: check if name already defined
+        field = ::BStruct::Builder._make_field(type, @offset, count:)
+        @fields[name] = field
+        @offset += field.size
+        field
       end
       
   end
+
+  def self.from_fields(fields, size)
+    raise ArgumentError, "size must be positive, found #{size}" unless size.positive?
+    ::Class.new(::BStruct) do
+      @fields = fields
+      @size = size
+
+      class << self
+        def size = @size
+        def fields = @fields
+
+        def to_s
+          return name if name
+          "BStruct[#{@size}, #{@fields.length}]"
+        end
+        alias :inspect :to_s
+      end
+
+      def initialize(*args, **kwargs)
+        return super if args.count == 1 && args.first.is_a?(::IO::Buffer)
+
+        super()
+        args_with_fields = if kwargs.empty? && !args.empty?
+          if args.length > self.class.fields.count
+            raise ::ArgumentError, "wrong number of argument (given #{args.length}, expected 0..#{self.class.fields.count})"
+          end
+          args.zip(self.class.fields.values)
+        elsif args.empty? && !kwargs.empty?
+          kwargs.map do |k, v|
+            raise ::ArgumentError, "unknown keyword #{k.inspect}" unless self.class.fields.key?(k)
+            [v, self.class.fields[k]]
+          end
+        elsif args.empty? && kwargs.empty?
+          []
+        else
+          raise ::ArgumentError, "cannot mix positional arguments and keyword arguments"
+        end
+
+        args_with_fields.each do |arg, field|
+          case field.type
+          when ::Symbol
+            @buffer.set_value(field.type, field.offset, arg)
+          else
+            field.type.from_value(arg).copy_to(@buffer, field.offset)
+          end
+        end
+      end
+
+      def inspect
+        "#<#{self.class} #{self.class.fields.map do |name, field|
+          "@#{name}=#{self.send(name).inspect}"
+        end.join(" ")}>"
+      end
+      alias :to_s :inspect
+
+      fields.each do |name, field|
+        case field.type
+        when ::Symbol
+          class_eval <<~RUBY, __FILE__, __LINE__+1
+            def #{name}
+              @buffer.get_value(:#{field.type}, #{field.offset})
+            end
+            def #{name}=(value)
+              @buffer.set_value(:#{field.type}, #{field.offset}, value)
+            end
+          RUBY
+        else
+          class_eval <<~RUBY, __FILE__, __LINE__+1
+            def #{name}
+              self.class.fields[:#{name}].type
+                .from_buf(@buffer.slice(#{field.offset}, #{field.size}))
+            end
+            def #{name}=(value)
+              self.class.fields[:#{name}].type
+                .from_value(value)
+                .copy_to(@buffer, #{field.offset})
+            end
+          RUBY
+        end
+      end
+    end
+  end
+end
+
+def BStruct(...)
+  ::BStruct.define(...)
 end

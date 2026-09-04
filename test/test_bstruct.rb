@@ -3,53 +3,48 @@
 require "test_helper"
 
 class TestBStruct < Minitest::Test
-  Foo = BStruct.define do
-    long :id
-    float :amount
+  Foo = BStruct do
+    id long.big
+    amount :float
     __
     __
-    int :count
+    count BStruct::Int32
   end
 
-  Bar = BStruct.define do
-    long :id
+  Bar = BStruct do
+    id long
     __ 3
-    struct Foo, :foo
+    foo Foo
   end
 
-  Baz = BStruct.define do
-    long :id
-    struct Foo[2], :foos
+  Vec = BStruct do
+    e float[3]
   end
 
-  Vec = BStruct.define do
-    float :e, 3
+  Color = BStruct(
+    r: :float,
+    g: :float,
+    b: :float
+  )
+
+  Mat = BStruct do
+    e float[9]
   end
 
-  Color = BStruct.define do
-    float :r
-    float :g
-    float :b
-  end
-
-  Mat = BStruct.define do
-    float :e, 9
-  end
-
-  Foople = BStruct::Tuple(:long, :float, nil, nil, :u8)
+  Foople = BStruct::Tuple{[long, float, __, __, u8]}
   Barple = BStruct::Tuple(:long, 3, Foople)
-  Arrayple = BStruct::Tuple(:long, BStruct::Int32[3], Foople[2])
+  Arrayple = BStruct::Tuple{[long, int[3], Foople[2]]}
 
-  KitchenSink = BStruct.define do
-    long :id
-    float :floats, 3
-    field BStruct::Int32, :int
+  KitchenSink = BStruct do
+    id long
+    floats float[3]
+    int BStruct::Int32
     __ 3
-    array BStruct::Int32[3][2], :ints
-    struct Bar, :bar
-    struct Foo[2], :foos
-    tuple Barple, :barple
-    tuple Foople[2], :fooples
+    ints BStruct::Int32[3][2]
+    bar Bar
+    foos Foo[2]
+    barple Barple
+    fooples Foople[2]
   end
 
   def test_that_it_has_a_version_number
@@ -209,7 +204,7 @@ class TestBStruct < Minitest::Test
     )
 
     assert_equal([Vec.new([1.0, 2.0, 3.0]), Vec.new([2.0, 3.0, 4.0])], a[0].to_a)
-    assert_equal([Vec.new([3.0, 4.0, 5.0]), Vec.new([2.0, 4.0, 5.0])], a[1].to_a)
+    assert_equal([Vec.new([3.0, 4.0, 5.0]), Vec.new([4.0, 5.0, 6.0])], a[1].to_a)
     assert_equal(Vec.new([1.0, 2.0, 3.0]), a[0][0])
     assert_equal(Vec.new([2.0, 3.0, 4.0]), a[0][1])
     assert_equal(Vec.new([3.0, 4.0, 5.0]), a[1][0])
@@ -221,7 +216,7 @@ class TestBStruct < Minitest::Test
     )
 
     assert_equal([Vec.new([1.0, 2.0, 3.0]), Vec.new([2.0, 3.0, 4.0])], a[0].to_a)
-    assert_equal([Vec.new([3.0, 4.0, 5.0]), Vec.new([2.0, 4.0, 5.0])], a[1].to_a)
+    assert_equal([Vec.new([3.0, 4.0, 5.0]), Vec.new([4.0, 5.0, 6.0])], a[1].to_a)
     assert_equal(Vec.new([1.0, 2.0, 3.0]), a[0][0])
     assert_equal(Vec.new([2.0, 3.0, 4.0]), a[0][1])
     assert_equal(Vec.new([3.0, 4.0, 5.0]), a[1][0])
@@ -233,7 +228,7 @@ class TestBStruct < Minitest::Test
     )
 
     assert_equal([Vec.new([1.0, 2.0, 3.0]), Vec.new([2.0, 3.0, 4.0])], a[0].to_a)
-    assert_equal([Vec.new([3.0, 4.0, 5.0]), Vec.new([2.0, 4.0, 5.0])], a[1].to_a)
+    assert_equal([Vec.new([3.0, 4.0, 5.0]), Vec.new([4.0, 5.0, 6.0])], a[1].to_a)
     assert_equal(Vec.new([1.0, 2.0, 3.0]), a[0][0])
     assert_equal(Vec.new([2.0, 3.0, 4.0]), a[0][1])
     assert_equal(Vec.new([3.0, 4.0, 5.0]), a[1][0])
@@ -245,7 +240,7 @@ class TestBStruct < Minitest::Test
     )
 
     assert_equal([Vec.new([1.0, 2.0, 3.0]), Vec.new([2.0, 3.0, 4.0])], a[0].to_a)
-    assert_equal([Vec.new([3.0, 4.0, 5.0]), Vec.new([2.0, 4.0, 5.0])], a[1].to_a)
+    assert_equal([Vec.new([3.0, 4.0, 5.0]), Vec.new([4.0, 5.0, 6.0])], a[1].to_a)
     assert_equal(Vec.new([1.0, 2.0, 3.0]), a[0][0])
     assert_equal(Vec.new([2.0, 3.0, 4.0]), a[0][1])
     assert_equal(Vec.new([3.0, 4.0, 5.0]), a[1][0])
