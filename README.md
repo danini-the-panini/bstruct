@@ -37,7 +37,7 @@ ball = Sphere.new(4.0, Vec3.new(1.0, 2.0, 3.0))
 ## TODO
 
 1. unions
-2. tuples
+2. dup/clone
 
 ## Development
 
