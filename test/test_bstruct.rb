@@ -17,6 +17,11 @@ class TestBStruct < Minitest::Test
     struct Foo, :foo
   end
 
+  Baz = BStruct.define do
+    long :id
+    struct Foo[2], :foos
+  end
+
   Vec = BStruct.define do
     float :e, 3
   end
@@ -29,6 +34,22 @@ class TestBStruct < Minitest::Test
 
   Mat = BStruct.define do
     float :e, 9
+  end
+
+  Foople = BStruct::Tuple(:long, :float, nil, nil, :u8)
+  Barple = BStruct::Tuple(:long, 3, Foople)
+  Arrayple = BStruct::Tuple(:long, BStruct::Int32[3], Foople[2])
+
+  KitchenSink = BStruct.define do
+    long :id
+    float :floats, 3
+    field BStruct::Int32, :int
+    __ 3
+    array BStruct::Int32[3][2], :ints
+    struct Bar, :bar
+    struct Foo[2], :foos
+    tuple Barple, :barple
+    tuple Foople[2], :fooples
   end
 
   def test_that_it_has_a_version_number
@@ -53,16 +74,46 @@ class TestBStruct < Minitest::Test
     assert_equal Foo.new(1, 1.0, 2), Foo.new(1, 1.0, 2)
   end
 
+  def test_tuple
+    foo = Foople.new(1234, 2.0, 123)
+    assert_equal 1234, foo[0]
+    assert_equal 2.0, foo[1]
+    assert_equal 123, foo[2]
+
+    assert_equal([1234, 2.0, 123], foo.to_a)
+
+    foo[0] = 2345
+    foo[1] = 3.0
+    foo[2] = 234
+    assert_equal 2345, foo[0]
+    assert_equal 3.0, foo[1]
+    assert_equal 234, foo[2]
+  end
+
   def test_nested_struct
     foo = Foo.new(12, 1.0, 3)
     bar = Bar.new(123, foo)
     assert_equal 12, bar.foo.id
+    assert_equal foo, bar.foo
 
     bar.foo.id = 24
     assert_equal 24, bar.foo.id
 
     bar.foo = Foo.new(36, 2.0, 7)
     assert_equal 36, bar.foo.id
+  end
+
+  def test_nested_tuple
+    foo = Foople.new(12, 1.0, 3)
+    bar = Barple.new(1234, foo)
+
+    assert_equal 12, bar[1][0]
+    assert_equal foo, bar[1]
+
+    assert_equal([1234, foo], bar.to_a)
+
+    bar[1][0] = 24
+    assert_equal 24, bar[1][0]
   end
 
   def test_array
@@ -105,6 +156,49 @@ class TestBStruct < Minitest::Test
     assert_equal(
       Foo[].new(Foo.new(1, 1.0, 2), Foo.new(2, 2.0, 3)),
       Foo[Foo.new(1, 1.0, 2), Foo.new(2, 2.0, 3)]
+    )
+  end
+
+  def test_array_of_tuples
+    foos = Foople[34].new
+    assert_equal 34, foos.length
+
+    foos[12][0] = 789
+    assert_equal 789, foos[12][0]
+
+    foos = Foople[].new(
+      Foople.new(10, 1.0, 100),
+      Foople.new(20, 2.0, 200),
+      Foople.new(30, 3.0, 300),
+      Foople.new(40, 4.0, 400),
+      Foople.new(50, 5.0, 500)
+    )
+    assert_equal 5, foos.length
+    assert_equal 10, foos[0][0]
+    assert_equal 20, foos[1][0]
+    assert_equal 30, foos[2][0]
+    assert_equal 40, foos[3][0]
+    assert_equal 50, foos[4][0]
+
+    assert_equal(50, foos[-1][0])
+    assert_equal([20, 30, 40], foos[1, 3].map(&:first))
+    assert_equal([20, 30, 40], foos[1..3].map(&:first))
+    assert_equal([20, 30], foos[1...3].map(&:first))
+    assert_equal([20, 30, 40], foos[1, 3].map(&:first))
+    assert_equal([30, 40], foos[-3, 2].map(&:first))
+    assert_equal([30, 40, 50], foos[-3..-1].map(&:first))
+
+    assert_equal(
+      Foople[].new(Foople.new(1, 1.0, 2), Foople.new(2, 2.0, 3)),
+      Foople[2].new(Foople.new(1, 1.0, 2), Foople.new(2, 2.0, 3))
+    )
+    assert_equal(
+      [Foople.new(1, 1.0, 2), Foople.new(2, 2.0, 3)],
+      Foople[2].new(Foople.new(1, 1.0, 2), Foople.new(2, 2.0, 3))
+    )
+    assert_equal(
+      Foople[].new(Foople.new(1, 1.0, 2), Foople.new(2, 2.0, 3)),
+      Foople[Foople.new(1, 1.0, 2), Foople.new(2, 2.0, 3)]
     )
   end
 
@@ -252,6 +346,18 @@ class TestBStruct < Minitest::Test
     assert_equal([7.0, 8.0, 9.0], m.e[-3..-1].to_a)
   end
 
+  def test_array_tuple_member
+    a = Arrayple.new(123, [1,2,3], [Foople.new(1, 1.0, 2), Foople.new(2, 2.0, 3)])
+    assert_equal([1,2,3], a[1].to_a)
+    assert_equal([Foople.new(1, 1.0, 2), Foople.new(2, 2.0, 3)], a[2].to_a)
+    assert_equal(Foople.new(1, 1.0, 2), a[2][0])
+
+    a = Arrayple.new(123, [1,2,3], [[1, 1.0, 2], [2, 2.0, 3]])
+    assert_equal([1,2,3], a[1].to_a)
+    assert_equal([Foople.new(1, 1.0, 2), Foople.new(2, 2.0, 3)], a[2].to_a)
+    assert_equal(Foople.new(1, 1.0, 2), a[2][0])
+  end
+
   def test_cast_struct
     v = Vec.new([1.0, 2.0, 3.0])
     c = v.cast(Color)
@@ -326,6 +432,38 @@ class TestBStruct < Minitest::Test
     assert_equal 1.0, a2[0].r; assert_equal 2.0, a2[0].g; assert_equal 3.0, a2[0].b;
     assert_equal 4.0, a2[1].r; assert_equal 5.0, a2[1].g; assert_equal 6.0, a2[1].b;
     assert_equal 7.0, a2[2].r; assert_equal 8.0, a2[2].g; assert_equal 9.0, a2[2].b;
+  end
+
+  def test_kitchen_sink
+    k = KitchenSink.new(
+      id: 12345,
+      int: 987,
+      floats: [1.0, 2.0, 3.0],
+      bar: Bar.new(2345, Foo.new(345, 2.0, 7)),
+      ints: [
+        [2,3,4],
+        [5,6,7]
+      ],
+      barple: [4567, [123, 3.0, 2]],
+      foos: [Foo.new(111, 1.0, 3), Foo.new(222, 2.0, 4)],
+      fooples: [
+        [1111, 1.0, 5],
+        [2222, 2.0, 6],
+      ]
+    )
+
+    assert_equal 12345, k.id
+    assert_equal 1.0, k.floats[0]
+    assert_equal 987, k.int
+    assert_equal 2345, k.bar.id
+    assert_equal 345, k.bar.foo.id
+    assert_equal 2, k.ints[0][0]
+    assert_equal 5, k.ints[1][0]
+    assert_equal 4567, k.barple[0]
+    assert_equal 111, k.foos[0].id
+    assert_equal 222, k.foos[1].id
+    assert_equal 1111, k.fooples[0][0]
+    assert_equal 2222, k.fooples[1][0]
   end
 
   def test_uint8_array
